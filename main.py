@@ -2,6 +2,7 @@
 import xlrd, xlwt
 from xlutils.copy import copy
 import requests
+import time
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -163,6 +164,7 @@ class BmatJapan(object):
 
     def get_youtube_data(self):
         for youtube_url in self.urls_list:
+            print('user->' + youtube_url)
             query = ''
             if youtube_url[24:31] == 'channel':
                 query = 'id=' + youtube_url[32:]
@@ -175,10 +177,18 @@ class BmatJapan(object):
             uploads_playlist_id = data[u'items'][0][u'contentDetails'][u'relatedPlaylists'][u'uploads']
             page_token = ''
             while True:
+                print('retrieving playlist page')
                 query_url = 'https://www.googleapis.com/youtube/v3/playlistItems?' + page_token \
                             + 'part=snippet&playlistId=' + uploads_playlist_id \
                             + '&maxResults=50' + '&key=' + self.DEVELOPER_KEY
-                response = requests.get(query_url)
+                while True:
+                    try:
+                        response = requests.get(query_url)
+                        break
+                    except:
+                        print('problem retrieving playlist page')
+                        time.sleep(10)
+                        continue
                 data = response.json()
                 if len(data[u'items']) > 0:
                     for item in data['items']:
@@ -187,7 +197,15 @@ class BmatJapan(object):
                         video_url = 'https://www.youtube.com/watch?v=' + video_id
                         query_url = 'https://www.googleapis.com/youtube/v3/videos?id=' + video_id  \
                                     + '&part=contentDetails&key=' + self.DEVELOPER_KEY
-                        response = requests.get(query_url)
+                        while True:
+                            try:
+                                print('retrieving track data with title -> ' + title)
+                                response = requests.get(query_url)
+                                break
+                            except:
+                                print('problem retrieving track data')
+                                time.sleep(10)
+                                continue
                         video_data = response.json()
                         duration = video_data['items'][0]['contentDetails']['duration'][2:]
                         self.track_list.append([title,
@@ -196,8 +214,10 @@ class BmatJapan(object):
                                                 self.users_list[self.urls_list.index(youtube_url)],
                                                 youtube_url])
                 if u'nextPageToken' in data.keys():
+                    print('going to next page of this playlist')
                     page_token = 'pageToken=' + data[u'nextPageToken'] + '&'
                 else:
+                    print('going to next user/channel')
                     break
 
     def debug_get_titles(self):
@@ -208,11 +228,39 @@ class BmatJapan(object):
         for row in range(1, rows):
             title = sheet_to_read.cell(row, 0).value
             # artist = sheet_to_read.cell(row, 1).value
-            url = sheet_to_read.cell(row, 2).value
-            duration = 'NONE'
-            yt_channel = sheet_to_read.cell(row, 3).value
-            yt_url = sheet_to_read.cell(row, 4).value
+            url = sheet_to_read.cell(row, 3).value
+            duration = sheet_to_read.cell(row, 4).value
+            yt_channel = sheet_to_read.cell(row, 5).value
+            yt_url = sheet_to_read.cell(row, 6).value
             self.track_list.append([title, url, duration, yt_channel, yt_url])
+
+    def export_prev_ver(self):
+        list_xls_ = xlwt.Workbook()
+        sheet_ = list_xls_.add_sheet('Youtube List')
+
+        # Headers
+        sheet_.write(0, 0, 'Video Title')
+        sheet_.write(0, 1, 'Track Title')
+        sheet_.write(0, 2, 'Track Artist')
+        sheet_.write(0, 3, 'Youtube URL')
+        sheet_.write(0, 4, 'Duration')
+        sheet_.write(0, 5, 'Channel or User')
+        sheet_.write(0, 6, 'Channel URL')
+        row = 1
+
+        # Add tracks
+        for track in self.track_list:
+            sheet_.write(row, 0, track[0])
+            sheet_.write(row, 1, '')
+            sheet_.write(row, 2, '')
+            sheet_.write(row, 3, track[1])
+            sheet_.write(row, 4, track[2])
+            sheet_.write(row, 5, track[3])
+            sheet_.write(row, 6, track[4])
+            row += 1
+
+        # Write metadata
+        list_xls_.save('yt_tracks_PREV.xls')
 
     def extract_title_data(self):
         prev_user_index = -1
@@ -220,6 +268,7 @@ class BmatJapan(object):
             print('FOR TITLE -> ' + track[0])
             # Get User Index
             user_index = self.users_list.index(track[3])
+            # user_index = self.urls_list.index(track[4])
             # Init Artist and Title
             title = ''
             if prev_user_index != user_index:
@@ -273,8 +322,11 @@ class BmatJapan(object):
                                         self.wt_include_exclusive_list[user_index] not in raw_title:
                             get_title = False
 
+                    get_artist_from_yt = True
+
                     if get_title:
-                        artist = self.artists[user_index]
+                        if not get_artist_from_yt:
+                            artist = self.artists[user_index]
                         has_key_word = False
                         key_words = []
                         for word in self.all_wt_include:
@@ -284,23 +336,23 @@ class BmatJapan(object):
                         if '"' in raw_title and '"Title"' in metadata_model:
                             if model_id == 6 and len(raw_title.split('"')) > 2:
                                 title = raw_title.split('"')[1]
-                                # if prev_user_index != user_index or artist == '':
-                                #     artist = raw_title.split('"')[2]
-                                #     if has_key_word:
-                                #         for key_word in key_words:
-                                #             if key_word in artist:
-                                #                 artist = artist.replace(key_word, '').rstrip().lstrip()
+                                if get_artist_from_yt:
+                                    artist = raw_title.split('"')[2]
+                                    if has_key_word:
+                                        for key_word in key_words:
+                                            if key_word in artist:
+                                                artist = artist.replace(key_word, '').rstrip().lstrip()
                             elif model_id == 9 and len(raw_title.split('"')) > 1:
-                                # if prev_user_index != user_index or artist == '':
-                                #     artist = raw_title.split('"')[0].rstrip().lstrip()
+                                if get_artist_from_yt:
+                                    artist = raw_title.split('"')[0].rstrip().lstrip()
                                 title = raw_title.split('"')[1]
                         else:
-                            # if prev_user_index != user_index or artist == '':
-                            #     artist = raw_title.split(m_split[id_artist].rstrip().lstrip())
-                            #     if (id_artist == 1 and len(artist) > 1) or id_artist == 0:
-                            #         artist = artist[id_artist].rstrip()
-                            #     else:
-                            #         artist = None
+                            if get_artist_from_yt:
+                                artist = raw_title.split(m_split[id_artist].rstrip().lstrip())
+                                if (id_artist == 1 and len(artist) > 1) or id_artist == 0:
+                                    artist = artist[id_artist].rstrip()
+                                else:
+                                    artist = None
 
                             if len(m_split) == 2:
                                 if m_split[0] in raw_title and m_split[1] in raw_title:
@@ -366,8 +418,8 @@ class BmatJapan(object):
 
     def get_all_tracks(self):
         self.load_channel_list()
-        self.get_youtube_data()
-        # self.debug_get_titles()
+        # self.get_youtube_data()
+        self.debug_get_titles()
         self.extract_title_data()
         self.export_tracks_data()
 
