@@ -419,6 +419,7 @@ class BmatJapan(object):
     def get_all_tracks(self):
         self.load_channel_list()
         # self.get_youtube_data()
+        # self.export_prev_ver()
         self.debug_get_titles()
         self.extract_title_data()
         self.export_tracks_data()
