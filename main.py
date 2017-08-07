@@ -139,8 +139,8 @@ class BmatJapan(object):
                         u'私立恵比寿中学',
                         u'Sumika']
 
-    def load_channel_list(self):
-        file_path = 'youtube_channel_list.xls'
+    def load_channel_list(self, file_name):
+        file_path = file_name + '.xls'
         xls = xlrd.open_workbook(file_path, formatting_info=True)
         self.n_rows = xls.sheet_by_index(0).nrows
         self.sheet_to_read = xls.sheet_by_index(0)
@@ -164,77 +164,128 @@ class BmatJapan(object):
 
     def get_youtube_data(self):
         for youtube_url in self.urls_list:
-            print('user->' + youtube_url)
-            query = ''
-            if youtube_url[24:31] == 'channel':
-                query = 'id=' + youtube_url[32:]
-            elif youtube_url[24:28] == 'user':
-                query = 'forUsername=' + youtube_url[29:]
-            query_url = 'https://www.googleapis.com/youtube/v3/channels?part=contentDetails&' \
-                        + query + '&key=' + self.DEVELOPER_KEY
-            response = requests.get(query_url)
-            data = response.json()
-            uploads_playlist_id = data[u'items'][0][u'contentDetails'][u'relatedPlaylists'][u'uploads']
-            page_token = ''
-            while True:
-                print('retrieving playlist page')
-                query_url = 'https://www.googleapis.com/youtube/v3/playlistItems?' + page_token \
-                            + 'part=snippet&playlistId=' + uploads_playlist_id \
-                            + '&maxResults=50' + '&key=' + self.DEVELOPER_KEY
-                while True:
-                    try:
-                        response = requests.get(query_url)
-                        break
-                    except:
-                        print('problem retrieving playlist page')
-                        time.sleep(10)
-                        continue
-                data = response.json()
-                if len(data[u'items']) > 0:
-                    for item in data['items']:
-                        title = item['snippet']['title']
-                        video_id = item['snippet']['resourceId']['videoId']
-                        video_url = 'https://www.youtube.com/watch?v=' + video_id
-                        query_url = 'https://www.googleapis.com/youtube/v3/videos?id=' + video_id  \
-                                    + '&part=contentDetails&key=' + self.DEVELOPER_KEY
-                        while True:
-                            try:
-                                print('retrieving track data with title -> ' + title)
-                                response = requests.get(query_url)
-                                break
-                            except:
-                                print('problem retrieving track data')
-                                time.sleep(10)
-                                continue
-                        video_data = response.json()
-                        duration = video_data['items'][0]['contentDetails']['duration'][2:]
-                        self.track_list.append([title,
-                                                video_url,
-                                                duration,
-                                                self.users_list[self.urls_list.index(youtube_url)],
-                                                youtube_url])
-                if u'nextPageToken' in data.keys():
-                    print('going to next page of this playlist')
-                    page_token = 'pageToken=' + data[u'nextPageToken'] + '&'
-                else:
-                    print('going to next user/channel')
-                    break
+            if youtube_url != '':
+                if 'channel' in youtube_url or 'user' in youtube_url:
+                    print('user->' + youtube_url)
+                    query = ''
+                    if youtube_url[24:31] == 'channel':
+                        query = 'id=' + youtube_url[32:]
+                    elif youtube_url[24:28] == 'user':
+                        query = 'forUsername=' + youtube_url[29:]
+                    query_url = 'https://www.googleapis.com/youtube/v3/channels?part=contentDetails&' \
+                                + query + '&key=' + self.DEVELOPER_KEY
+                    response = requests.get(query_url)
+                    data = response.json()
+                    playlist_id = data[u'items'][0][u'contentDetails'][u'relatedPlaylists'][u'uploads']
 
-    def debug_get_titles(self):
-        file_path = 'yt_tracks_wChannelInfo.xls'
+                elif 'watch' in youtube_url and 'list' in youtube_url:
+                    playlist_id = youtube_url.split('list=')[1]
+
+                page_token = ''
+                while True:
+                    print('retrieving playlist page')
+                    query_url = 'https://www.googleapis.com/youtube/v3/playlistItems?' + page_token \
+                                + 'part=snippet&playlistId=' + playlist_id \
+                                + '&maxResults=50' + '&key=' + self.DEVELOPER_KEY
+                    while True:
+                        try:
+                            response = requests.get(query_url)
+                            break
+                        except:
+                            print('problem retrieving playlist page')
+                            time.sleep(10)
+                            continue
+                    data = response.json()
+                    if len(data[u'items']) > 0:
+                        for item in data['items']:
+                            title = item['snippet']['title']
+                            video_id = item['snippet']['resourceId']['videoId']
+                            video_url = 'https://www.youtube.com/watch?v=' + video_id
+                            query_url = 'https://www.googleapis.com/youtube/v3/videos?id=' + video_id \
+                                        + '&part=contentDetails&key=' + self.DEVELOPER_KEY
+                            while True:
+                                try:
+                                    print('retrieving track data with title -> ' + title)
+                                    response = requests.get(query_url)
+                                    break
+                                except:
+                                    print('problem retrieving track data')
+                                    time.sleep(10)
+                                    continue
+                            video_data = response.json()
+                            if 'Alain Ajax, Laura Beaudy - Ozé rikoumansé' in title:
+                                print('STOP HERE')
+                            duration = video_data['items'][0]['contentDetails']['duration'][2:]
+                            duration_in_secs = self.get_duration_in_secs(duration)
+                            self.track_list.append([title,
+                                                    video_url,
+                                                    duration,
+                                                    duration_in_secs,
+                                                    self.users_list[self.urls_list.index(youtube_url)],
+                                                    youtube_url])
+                    if u'nextPageToken' in data.keys():
+                        print('going to next page of this playlist')
+                        page_token = 'pageToken=' + data[u'nextPageToken'] + '&'
+                    else:
+                        print('going to next user/channel')
+                        break
+
+    @staticmethod
+    def get_duration_in_secs(duration):
+        duration_in_secs = 0
+        if 'H' in duration:
+            hours_in_secs = int(duration.split('H')[0]) * 3600
+            duration_in_secs += hours_in_secs
+            if 'M' in duration or 'S' in duration:
+                duration = duration.split('H')[1]
+        if 'M' in duration:
+            mins_in_secs = int(duration.split('M')[0]) * 60
+            duration_in_secs += mins_in_secs
+            if 'S' in duration:
+                duration = duration.split('M')[1]
+        if 'S' in duration:
+            secs = int(duration.split('S')[0])
+            duration_in_secs += secs
+        return str(duration_in_secs)
+
+    def debug_get_titles(self, file_name, get_dur_in_secs):
+        file_path = file_name + '.xls'
         xls = xlrd.open_workbook(file_path, formatting_info=True)
         rows = xls.sheet_by_index(0).nrows
         sheet_to_read = xls.sheet_by_index(0)
+
+        if get_dur_in_secs:
+            list_xls = xlwt.Workbook()
+            sheet = list_xls.add_sheet('Youtube List')
+            sheet.write(0, 0, 'Video Title')
+            sheet.write(0, 1, 'Track Title')
+            sheet.write(0, 2, 'Track Artist')
+            sheet.write(0, 3, 'Youtube URL')
+            sheet.write(0, 4, 'Duration')
+            sheet.write(0, 5, 'Duration (secs)')
+            sheet.write(0, 6, 'Channel/User/Playlist')
+            sheet.write(0, 7, 'Channel URL')
+
         for row in range(1, rows):
-            title = sheet_to_read.cell(row, 0).value
-            # artist = sheet_to_read.cell(row, 1).value
+            video_title = sheet_to_read.cell(row, 0).value
+            title = sheet_to_read.cell(row, 1).value
+            artist = sheet_to_read.cell(row, 2).value
             url = sheet_to_read.cell(row, 3).value
             duration = sheet_to_read.cell(row, 4).value
             yt_channel = sheet_to_read.cell(row, 5).value
             yt_url = sheet_to_read.cell(row, 6).value
-            self.track_list.append([title, url, duration, yt_channel, yt_url])
+            if get_dur_in_secs:
+                duration_in_secs = self.get_duration_in_secs(duration)
+                track = [video_title, title, artist, url, duration, duration_in_secs, yt_channel, yt_url]
+                for col in range(0, 8):
+                    sheet.write(row, col, track[col])
+                list_xls.save(file_name + '_.xls')
+                print('Row: ' + str(row) + ' // Total Rows: ' + str(rows))
+                print('Track: ' + video_title + ' // SAVED.')
+            else:
+                self.track_list.append([video_title, url, duration, yt_channel, yt_url])
 
-    def export_prev_ver(self):
+    def export_prev_ver(self, file_name):
         list_xls_ = xlwt.Workbook()
         sheet_ = list_xls_.add_sheet('Youtube List')
 
@@ -244,8 +295,9 @@ class BmatJapan(object):
         sheet_.write(0, 2, 'Track Artist')
         sheet_.write(0, 3, 'Youtube URL')
         sheet_.write(0, 4, 'Duration')
-        sheet_.write(0, 5, 'Channel or User')
-        sheet_.write(0, 6, 'Channel URL')
+        sheet_.write(0, 5, 'Duration (secs)')
+        sheet_.write(0, 6, 'Channel/User/Playlist')
+        sheet_.write(0, 7, 'Channel URL')
         row = 1
 
         # Add tracks
@@ -257,18 +309,18 @@ class BmatJapan(object):
             sheet_.write(row, 4, track[2])
             sheet_.write(row, 5, track[3])
             sheet_.write(row, 6, track[4])
+            sheet_.write(row, 7, track[5])
             row += 1
 
         # Write metadata
-        list_xls_.save('yt_tracks_PREV.xls')
+        list_xls_.save(file_name + '.xls')
 
     def extract_title_data(self):
         prev_user_index = -1
         for track in self.track_list:
             print('FOR TITLE -> ' + track[0])
             # Get User Index
-            user_index = self.users_list.index(track[3])
-            # user_index = self.urls_list.index(track[4])
+            user_index = self.urls_list.index(track[5])
             # Init Artist and Title
             title = ''
             if prev_user_index != user_index:
@@ -378,7 +430,7 @@ class BmatJapan(object):
                 artist_ = artist
             self.track_list_export.append([title, artist_])
 
-    def export_tracks_data(self):
+    def export_tracks_data(self, file_name):
         # Open workbook and add sheet
         self.list_xls = xlwt.Workbook()
         self.sheet = self.list_xls.add_sheet('Youtube List')
@@ -394,8 +446,9 @@ class BmatJapan(object):
         sheet_.write(0, 2, 'Track Artist')
         sheet_.write(0, 3, 'Youtube URL')
         sheet_.write(0, 4, 'Duration')
-        sheet_.write(0, 5, 'Channel or User')
-        sheet_.write(0, 6, 'Channel URL')
+        sheet_.write(0, 5, 'Duration (secs)')
+        sheet_.write(0, 6, 'Channel/User/Playlist')
+        sheet_.write(0, 7, 'Channel URL')
         row = 1
 
         # Add tracks
@@ -410,19 +463,20 @@ class BmatJapan(object):
             sheet_.write(row, 4, track[2])
             sheet_.write(row, 5, track[3])
             sheet_.write(row, 6, track[4])
+            sheet_.write(row, 7, track[5])
             row += 1
 
         # Write metadata
-        self.list_xls.save('yt_tracks_.xls')
-        list_xls_.save('yt_tracks_wChannelInfo_.xls')
+        # self.list_xls.save(file_name + '_.xls')
+        list_xls_.save(file_name + '.xls')
 
     def get_all_tracks(self):
-        self.load_channel_list()
-        # self.get_youtube_data()
-        # self.export_prev_ver()
-        self.debug_get_titles()
+        self.load_channel_list('caribe_input')
+        self.get_youtube_data()
+        self.export_prev_ver('caribe_midput')
+        # self.debug_get_titles('japan_output', True)
         self.extract_title_data()
-        self.export_tracks_data()
+        self.export_tracks_data('caribe_output')
 
 bmat_japan = BmatJapan()
 bmat_japan.get_all_tracks()
