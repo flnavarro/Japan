@@ -3,16 +3,19 @@ import xlrd, xlwt
 from xlutils.copy import copy
 import requests
 import time
+import argparse
+import os
 
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 
 
 class BmatJapan(object):
 
     def __init__(self):
         # Sheet/XLS
+        self.input_file_path = ''
         self.n_rows = 0
+        self.n_cols = 0
         self.sheet_to_read = None
         self.list_xls = None
         self.sheet = None
@@ -65,7 +68,8 @@ class BmatJapan(object):
                                 u'Artist “Title"',
                                 u'Artist /『Title』',
                                 u'【Artist】Title']
-        self.artists = [u'Mondo Grosso',
+        self.get_artist_from_input = False
+        self.jp_artists = [u'Mondo Grosso',
                         u'Nulbarich',
                         u'ゆず',
                         u'スピッツ',
@@ -139,28 +143,50 @@ class BmatJapan(object):
                         u'私立恵比寿中学',
                         u'Sumika']
 
-    def load_channel_list(self, file_name):
-        file_path = file_name + '.xls'
-        xls = xlrd.open_workbook(file_path, formatting_info=True)
+    def load_channel_list(self):
+        xls = xlrd.open_workbook(self.input_file_path, formatting_info=True)
         self.n_rows = xls.sheet_by_index(0).nrows
-        self.sheet_to_read = xls.sheet_by_index(0)
-        self.list_xls = copy(xls)
-        self.sheet = self.list_xls.get_sheet(0)
-        for row in range(1, self.n_rows):
-            self.users_list.append(self.sheet_to_read.cell(row, 0).value)
-            self.urls_list.append(self.sheet_to_read.cell(row, 1).value)
-            self.wt_include_list.append(self.sheet_to_read.cell(row, 2).value)
-            self.wt_include_exclusive_list.append(self.sheet_to_read.cell(row, 3).value)
-            self.wt_exclude_list.append(self.sheet_to_read.cell(row, 4).value)
-            self.metadata_format_list.append(self.sheet_to_read.cell(row, 5).value)
-        for metadata_format in self.metadata_format_list:
-            if ',' in metadata_format:
-                formats = metadata_format.split(',')
-                new_formats = []
-                for format in formats:
-                    new_formats.append(format.rstrip().lstrip())
-                index = self.metadata_format_list.index(metadata_format)
-                self.metadata_format_list[index] = new_formats
+        self.n_cols = xls.sheet_by_index(0).ncols
+        if self.n_rows > 1 and self.n_cols == 6:
+            file_format_is_correct = True
+            self.sheet_to_read = xls.sheet_by_index(0)
+            self.list_xls = copy(xls)
+            self.sheet = self.list_xls.get_sheet(0)
+            for row in range(1, self.n_rows):
+                self.users_list.append(self.sheet_to_read.cell(row, 0).value)
+                self.urls_list.append(self.sheet_to_read.cell(row, 1).value)
+                self.wt_include_list.append(self.sheet_to_read.cell(row, 2).value)
+                self.wt_include_exclusive_list.append(self.sheet_to_read.cell(row, 3).value)
+                self.wt_exclude_list.append(self.sheet_to_read.cell(row, 4).value)
+                self.metadata_format_list.append(self.sheet_to_read.cell(row, 5).value)
+            for wt_include in self.wt_include_list:
+                if wt_include != '':
+                    if ',' in wt_include:
+                        wts = wt_include.split(',')
+                        for wt in wts:
+                            self.all_wt_include.append(wt)
+                    else:
+                        self.all_wt_include.append(wt_include)
+            for wt_exclude in self.wt_exclude_list:
+                if wt_exclude != '':
+                    if ',' in wt_exclude:
+                        wts = wt_exclude.split(',')
+                        for wt in wts:
+                            self.all_wt_exclude.append(wt)
+                    else:
+                        self.all_wt_exclude.append(wt_exclude)
+            for metadata_format in self.metadata_format_list:
+                if ',' in metadata_format:
+                    formats = metadata_format.split(',')
+                    new_formats = []
+                    for f in formats:
+                        new_formats.append(f.rstrip().lstrip())
+                    index = self.metadata_format_list.index(metadata_format)
+                    self.metadata_format_list[index] = new_formats
+        else:
+            file_format_is_correct = False
+
+        return file_format_is_correct
 
     def get_youtube_data(self):
         for youtube_url in self.urls_list:
@@ -205,16 +231,14 @@ class BmatJapan(object):
                                         + '&part=contentDetails&key=' + self.DEVELOPER_KEY
                             while True:
                                 try:
-                                    print('retrieving track data with title -> ' + title)
+                                    print('retrieving video data with title -> ' + title)
                                     response = requests.get(query_url)
                                     break
                                 except:
-                                    print('problem retrieving track data')
+                                    print('problem retrieving video data')
                                     time.sleep(10)
                                     continue
                             video_data = response.json()
-                            if 'Alain Ajax, Laura Beaudy - Ozé rikoumansé' in title:
-                                print('STOP HERE')
                             duration = video_data['items'][0]['contentDetails']['duration'][2:]
                             duration_in_secs = self.get_duration_in_secs(duration)
                             self.track_list.append([title,
@@ -318,7 +342,6 @@ class BmatJapan(object):
     def extract_title_data(self):
         prev_user_index = -1
         for track in self.track_list:
-            print('FOR TITLE -> ' + track[0])
             # Get User Index
             user_index = self.urls_list.index(track[5])
             # Init Artist and Title
@@ -374,11 +397,9 @@ class BmatJapan(object):
                                         self.wt_include_exclusive_list[user_index] not in raw_title:
                             get_title = False
 
-                    get_artist_from_yt = True
-
                     if get_title:
-                        if not get_artist_from_yt:
-                            artist = self.artists[user_index]
+                        if self.get_artist_from_input:
+                            artist = self.users_list[user_index]
                         has_key_word = False
                         key_words = []
                         for word in self.all_wt_include:
@@ -388,18 +409,18 @@ class BmatJapan(object):
                         if '"' in raw_title and '"Title"' in metadata_model:
                             if model_id == 6 and len(raw_title.split('"')) > 2:
                                 title = raw_title.split('"')[1]
-                                if get_artist_from_yt:
+                                if not self.get_artist_from_input:
                                     artist = raw_title.split('"')[2]
                                     if has_key_word:
                                         for key_word in key_words:
                                             if key_word in artist:
                                                 artist = artist.replace(key_word, '').rstrip().lstrip()
                             elif model_id == 9 and len(raw_title.split('"')) > 1:
-                                if get_artist_from_yt:
+                                if not self.get_artist_from_input:
                                     artist = raw_title.split('"')[0].rstrip().lstrip()
                                 title = raw_title.split('"')[1]
                         else:
-                            if get_artist_from_yt:
+                            if not self.get_artist_from_input:
                                 artist = raw_title.split(m_split[id_artist].rstrip().lstrip())
                                 if (id_artist == 1 and len(artist) > 1) or id_artist == 0:
                                     artist = artist[id_artist].rstrip()
@@ -409,10 +430,11 @@ class BmatJapan(object):
                             if len(m_split) == 2:
                                 if m_split[0] in raw_title and m_split[1] in raw_title:
                                     if m_split[1] != '':
-                                        title = raw_title[raw_title.find(m_split[0])
-                                                          + len(m_split[0]):raw_title.find(m_split[1])]
+                                        title = raw_title[raw_title.find(m_split[0]) +
+                                                          len(m_split[0]):raw_title.find(m_split[1])]
                                     else:
-                                        title = raw_title[raw_title.find(m_split[0]) + len(m_split[0]):]
+                                        title = raw_title[raw_title.find(m_split[0]) +
+                                                          len(m_split[0]):]
                                     if has_key_word:
                                         for key_word in key_words:
                                             if key_word in title:
@@ -426,21 +448,18 @@ class BmatJapan(object):
             prev_user_index = user_index
             if title == '':
                 artist_ = ''
+                print('did not extract metadata for video title -> ' + track[0])
             else:
                 artist_ = artist
+                print('metadata extracted // track title -> ' + title + ' // track artist -> ' + artist_)
             self.track_list_export.append([title, artist_])
 
     def export_tracks_data(self, file_name):
         # Open workbook and add sheet
-        self.list_xls = xlwt.Workbook()
-        self.sheet = self.list_xls.add_sheet('Youtube List')
         list_xls_ = xlwt.Workbook()
         sheet_ = list_xls_.add_sheet('Youtube List')
 
         # Headers
-        self.sheet.write(0, 0, 'Track Title')
-        self.sheet.write(0, 1, 'Track Artist')
-        self.sheet.write(0, 2, 'Youtube URL')
         sheet_.write(0, 0, 'Video Title')
         sheet_.write(0, 1, 'Track Title')
         sheet_.write(0, 2, 'Track Artist')
@@ -453,9 +472,6 @@ class BmatJapan(object):
 
         # Add tracks
         for track in self.track_list:
-            self.sheet.write(row, 0, track[0])
-            self.sheet.write(row, 1, '')
-            self.sheet.write(row, 2, track[1])
             sheet_.write(row, 0, track[0])
             sheet_.write(row, 1, self.track_list_export[self.track_list.index(track)][0])
             sheet_.write(row, 2, self.track_list_export[self.track_list.index(track)][1])
@@ -467,16 +483,58 @@ class BmatJapan(object):
             row += 1
 
         # Write metadata
-        # self.list_xls.save(file_name + '_.xls')
-        list_xls_.save(file_name + '.xls')
+        list_xls_.save(file_name)
 
-    def get_all_tracks(self):
-        self.load_channel_list('caribe_input')
-        self.get_youtube_data()
-        self.export_prev_ver('caribe_midput')
-        # self.debug_get_titles('japan_output', True)
-        self.extract_title_data()
-        self.export_tracks_data('caribe_output')
+    def get_all_tracks(self, file_path, get_artist_from_input=False):
+        self.input_file_path = file_path
+        self.get_artist_from_input = get_artist_from_input
 
-bmat_japan = BmatJapan()
-bmat_japan.get_all_tracks()
+        file_is_correct = self.load_channel_list()
+        if file_is_correct:
+            self.get_youtube_data()
+            self.extract_title_data()
+            self.export_tracks_data(file_path[:-4] + '_output.xls')
+        else:
+            print('There was a problem with the format of the xls file.')
+
+
+class InputParser(object):
+    def __init__(self):
+        self.parser = argparse.ArgumentParser(description='Get links and metadata from youtube channel/user/playlist.')
+        self.file_path = None
+
+    def add_arguments(self):
+        # Arguments to parse
+        self.parser.add_argument('-input_file_path', action='store', dest='file_path', default=None,
+                                 help='path for input xls file')
+
+    def parse_input(self):
+        # Add arguments to parser
+        self.add_arguments()
+        # Parse arguments from input
+        args = self.parser.parse_args()
+
+        # Get Input File Path if exists
+        if args.file_path is not None:
+            if os.path.exists(args.file_path):
+                self.file_path = args.file_path
+            else:
+                print('The path specified as input_file_path does not exist.')
+        else:
+            print('Please specify a valid input_file_path.')
+
+
+args_input = True
+
+if args_input:
+    # Get input from user and parse arguments
+    input_parser = InputParser()
+    input_parser.parse_input()
+    # Get tracks
+    if input_parser.file_path is not None:
+        bmat_japan = BmatJapan()
+        bmat_japan.get_all_tracks(input_parser.file_path)
+else:
+    path = 'caribe_.xls'
+    bmat_japan = BmatJapan()
+    bmat_japan.get_all_tracks(path)
