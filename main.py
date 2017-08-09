@@ -158,7 +158,12 @@ class BmatJapan(object):
                 self.wt_include_list.append(self.sheet_to_read.cell(row, 2).value)
                 self.wt_include_exclusive_list.append(self.sheet_to_read.cell(row, 3).value)
                 self.wt_exclude_list.append(self.sheet_to_read.cell(row, 4).value)
-                self.metadata_format_list.append(self.sheet_to_read.cell(row, 5).value)
+                metadata_format = self.sheet_to_read.cell(row, 5).value
+                if 'artist' in metadata_format:
+                    metadata_format = metadata_format.replace('artist', 'Artist')
+                if 'title' in metadata_format:
+                    metadata_format = metadata_format.replace('title', 'Title')
+                self.metadata_format_list.append(metadata_format)
             for wt_include in self.wt_include_list:
                 if wt_include != '':
                     if ',' in wt_include:
@@ -471,16 +476,24 @@ class BmatJapan(object):
         row = 1
 
         # Add tracks
+        include_all_tracks = False
         for track in self.track_list:
-            sheet_.write(row, 0, track[0])
-            sheet_.write(row, 1, self.track_list_export[self.track_list.index(track)][0])
-            sheet_.write(row, 2, self.track_list_export[self.track_list.index(track)][1])
-            sheet_.write(row, 3, track[1])
-            sheet_.write(row, 4, track[2])
-            sheet_.write(row, 5, track[3])
-            sheet_.write(row, 6, track[4])
-            sheet_.write(row, 7, track[5])
-            row += 1
+            write_track = True
+            title = self.track_list_export[self.track_list.index(track)][0]
+            artist = self.track_list_export[self.track_list.index(track)][1]
+            if not include_all_tracks:
+                if title == '' or artist == '':
+                    write_track = False
+            if write_track:
+                sheet_.write(row, 0, track[0])
+                sheet_.write(row, 1, title)
+                sheet_.write(row, 2, artist)
+                sheet_.write(row, 3, track[1])
+                sheet_.write(row, 4, track[2])
+                sheet_.write(row, 5, track[3])
+                sheet_.write(row, 6, track[4])
+                sheet_.write(row, 7, track[5])
+                row += 1
 
         # Write metadata
         list_xls_.save(file_name)
@@ -535,6 +548,6 @@ if args_input:
         bmat_japan = BmatJapan()
         bmat_japan.get_all_tracks(input_parser.file_path)
 else:
-    path = 'caribe_.xls'
+    path = 'KoreanValidYTChannelsTest.xls'
     bmat_japan = BmatJapan()
     bmat_japan.get_all_tracks(path)
