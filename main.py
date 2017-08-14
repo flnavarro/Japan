@@ -476,6 +476,7 @@ class BmatJapan(object):
         row = 1
 
         # Add tracks
+        sheet_index = 1
         include_all_tracks = False
         for track in self.track_list:
             write_track = True
@@ -494,6 +495,18 @@ class BmatJapan(object):
                 sheet_.write(row, 6, track[4])
                 sheet_.write(row, 7, track[5])
                 row += 1
+                if row == 60002:
+                    sheet_index += 1
+                    sheet_ = list_xls_.add_sheet('Youtube List (' + str(sheet_index) + ')')
+                    sheet_.write(0, 0, 'Video Title')
+                    sheet_.write(0, 1, 'Track Title')
+                    sheet_.write(0, 2, 'Track Artist')
+                    sheet_.write(0, 3, 'Youtube URL')
+                    sheet_.write(0, 4, 'Duration')
+                    sheet_.write(0, 5, 'Duration (secs)')
+                    sheet_.write(0, 6, 'Channel/User/Playlist')
+                    sheet_.write(0, 7, 'Channel URL')
+                    row = 1
 
         # Write metadata
         list_xls_.save(file_name)
