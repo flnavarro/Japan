@@ -163,13 +163,16 @@ class BmatJapan(object):
                     metadata_format = metadata_format.replace('artist', 'Artist')
                 if 'title' in metadata_format:
                     metadata_format = metadata_format.replace('title', 'Title')
+                if '\\' in metadata_format:
+                    metadata_format = metadata_format.replace('\\', '')
                 self.metadata_format_list.append(metadata_format)
             for wt_include in self.wt_include_list:
                 if wt_include != '':
                     if ',' in wt_include:
                         wts = wt_include.split(',')
                         for wt in wts:
-                            self.all_wt_include.append(wt)
+                            if wt != '':
+                                self.all_wt_include.append(wt)
                     else:
                         self.all_wt_include.append(wt_include)
             for wt_exclude in self.wt_exclude_list:
@@ -177,7 +180,8 @@ class BmatJapan(object):
                     if ',' in wt_exclude:
                         wts = wt_exclude.split(',')
                         for wt in wts:
-                            self.all_wt_exclude.append(wt)
+                            if wt != '':
+                                self.all_wt_exclude.append(wt)
                     else:
                         self.all_wt_exclude.append(wt_exclude)
             for metadata_format in self.metadata_format_list:
@@ -185,7 +189,13 @@ class BmatJapan(object):
                     formats = metadata_format.split(',')
                     new_formats = []
                     for f in formats:
+                        if 'artist' in f:
+                            f = f.replace('artist', 'Artist')
+                        if 'title' in f:
+                            f = f.replace('title', 'Title')
                         new_formats.append(f.rstrip().lstrip())
+                        if f not in self.metadata_models:
+                            self.metadata_models.append(f)
                     index = self.metadata_format_list.index(metadata_format)
                     self.metadata_format_list[index] = new_formats
         else:
@@ -353,102 +363,103 @@ class BmatJapan(object):
             title = ''
             if prev_user_index != user_index:
                 artist = ''
-            model_ids = []
-            model_id = None
-            # Get Metadata Model for this Track's User
-            for model in self.metadata_models:
+            format_id = 0
+            while True:
                 if not isinstance(self.metadata_format_list[user_index], list):
-                    if self.metadata_format_list[user_index] == model:
-                        model_id = self.metadata_models.index(model)
+                    metadata_model = self.metadata_format_list[user_index]
+                else:
+                    metadata_model = self.metadata_format_list[user_index][format_id]
+
+                if 'Title' in metadata_model.split('Artist')[1]:
+                    id_artist = 0
+                    id_title = 1
+                elif 'Title' in metadata_model.split('Artist')[0]:
+                    id_title = 0
+                    id_artist = 1
+
+                m_split = metadata_model.split('Artist')[id_title].split('Title')
+
+                raw_title = track[0]
+
+                get_title = True
+
+                for word in self.all_wt_exclude:
+                    if word.lower() in raw_title.lower():
+                        get_title = False
                         break
-                else:
-                    for format in self.metadata_format_list[user_index]:
-                        if format == model:
-                            model_id = -1
-                            model_ids.append(self.metadata_models.index(model))
-            if model_id is not None:
-                if model_id == -1:
-                    format_index = 0
-                    several_formats = True
-                else:
-                    several_formats = False
 
-                while True:
-                    if several_formats:
-                        model_id = model_ids[format_index]
+                if get_title:
+                    if len(self.wt_include_exclusive_list[user_index]) > 0 and \
+                                    self.wt_include_exclusive_list[user_index] not in raw_title:
+                        get_title = False
 
-                    metadata_model = self.metadata_models[model_id]
-
-                    if 'Title' in metadata_model.split('Artist')[1]:
-                        id_artist = 0
-                        id_title = 1
-                    elif 'Title' in metadata_model.split('Artist')[0]:
-                        id_title = 0
-                        id_artist = 1
-
-                    m_split = metadata_model.split('Artist')[id_title].split('Title')
-
-                    raw_title = track[0]
-
-                    get_title = True
-
-                    for word in self.all_wt_exclude:
+                if get_title:
+                    if self.get_artist_from_input:
+                        artist = self.users_list[user_index]
+                    has_key_word = False
+                    key_words = []
+                    for word in self.all_wt_include:
                         if word in raw_title:
-                            get_title = False
-                            break
-
-                    if get_title:
-                        if len(self.wt_include_exclusive_list[user_index]) > 0 and \
-                                        self.wt_include_exclusive_list[user_index] not in raw_title:
-                            get_title = False
-
-                    if get_title:
-                        if self.get_artist_from_input:
-                            artist = self.users_list[user_index]
-                        has_key_word = False
-                        key_words = []
-                        for word in self.all_wt_include:
-                            if word in raw_title:
-                                has_key_word = True
-                                key_words.append(word)
-                        if '"' in raw_title and '"Title"' in metadata_model:
-                            if model_id == 6 and len(raw_title.split('"')) > 2:
+                            has_key_word = True
+                            key_words.append(word)
+                    if ('"' in raw_title and '"Title"' in metadata_model) \
+                            or ("'" in raw_title and "'Title'" in metadata_model):
+                        if (id_title == 0 and len(raw_title.split('"')) > 2) \
+                                or (id_title == 0 and len(raw_title.split("'")) > 2):
+                            if '"' in raw_title:
                                 title = raw_title.split('"')[1]
-                                if not self.get_artist_from_input:
-                                    artist = raw_title.split('"')[2]
-                                    if has_key_word:
-                                        for key_word in key_words:
-                                            if key_word in artist:
-                                                artist = artist.replace(key_word, '').rstrip().lstrip()
-                            elif model_id == 9 and len(raw_title.split('"')) > 1:
-                                if not self.get_artist_from_input:
-                                    artist = raw_title.split('"')[0].rstrip().lstrip()
-                                title = raw_title.split('"')[1]
-                        else:
+                            elif "'" in raw_title:
+                                title = raw_title.split("'")[1]
                             if not self.get_artist_from_input:
-                                artist = raw_title.split(m_split[id_artist].rstrip().lstrip())
-                                if (id_artist == 1 and len(artist) > 1) or id_artist == 0:
-                                    artist = artist[id_artist].rstrip()
-                                else:
-                                    artist = None
-
-                            if len(m_split) == 2:
-                                if m_split[0] in raw_title and m_split[1] in raw_title:
-                                    if m_split[1] != '':
-                                        title = raw_title[raw_title.find(m_split[0]) +
-                                                          len(m_split[0]):raw_title.find(m_split[1])]
-                                    else:
-                                        title = raw_title[raw_title.find(m_split[0]) +
-                                                          len(m_split[0]):]
-                                    if has_key_word:
-                                        for key_word in key_words:
-                                            if key_word in title:
-                                                title = title.replace(key_word, '').rstrip().lstrip()
-
-                    if several_formats and title == '' and format_index + 1 < len(model_ids):
-                        format_index += 1
+                                if '"' in raw_title:
+                                    artist = raw_title.split('"')[2]
+                                elif "'" in raw_title:
+                                    artist = raw_title.split("'")[2]
+                                if has_key_word:
+                                    for key_word in key_words:
+                                        if key_word in artist:
+                                            artist = artist.replace(key_word, '').rstrip().lstrip()
+                        elif (id_title == 1 and len(raw_title.split('"')) > 1) \
+                                or (id_title == 1 and len(raw_title.split("'")) > 1):
+                            if not self.get_artist_from_input:
+                                if '"' in raw_title:
+                                    artist = raw_title.split('"')[0]
+                                elif "'" in raw_title:
+                                    artist = raw_title.split("'")[0]
+                                if '-' in artist:
+                                    artist = artist.replace('-', '')
+                                artist = artist.rstrip().lstrip()
+                            if '"' in raw_title:
+                                title = raw_title.split('"')[1]
+                            elif "'" in raw_title:
+                                title = raw_title.split("'")[1]
                     else:
-                        break
+                        if not self.get_artist_from_input:
+                            artist = raw_title.split(m_split[id_artist].rstrip().lstrip())
+                            if (id_artist == 1 and len(artist) > 1) or id_artist == 0:
+                                artist = artist[id_artist].rstrip()
+                            else:
+                                artist = None
+
+                        if len(m_split) == 2:
+                            if m_split[0] in raw_title and m_split[1] in raw_title:
+                                if m_split[1] != '':
+                                    title = raw_title[raw_title.find(m_split[0]) +
+                                                      len(m_split[0]):raw_title.find(m_split[1])]
+                                else:
+                                    title = raw_title[raw_title.find(m_split[0]) +
+                                                      len(m_split[0]):]
+                                if has_key_word:
+                                    for key_word in key_words:
+                                        if key_word in title:
+                                            title = title.replace(key_word, '').rstrip().lstrip()
+
+                if isinstance(self.metadata_format_list[user_index], list) and \
+                    len(self.metadata_format_list[user_index]) > 1 and title == '' \
+                        and format_id + 1 < len(self.metadata_format_list[user_index]):
+                    format_id += 1
+                else:
+                    break
 
             prev_user_index = user_index
             if title == '':
@@ -561,6 +572,6 @@ if args_input:
         bmat_japan = BmatJapan()
         bmat_japan.get_all_tracks(input_parser.file_path)
 else:
-    path = 'KoreanValidYTChannelsTest.xls'
+    path = 'KoreanValidYTChannels.xls'
     bmat_japan = BmatJapan()
     bmat_japan.get_all_tracks(path)
